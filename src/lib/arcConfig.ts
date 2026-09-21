@@ -9,7 +9,7 @@ export const ARC_MAINNET = {
   },
   rpcUrls: ['https://rpc.mainnet.arc.io'],
   blockExplorerUrls: ['https://explorer.arc.io'],
-  contractAddress: '0x8b5Cf6731b26a238a4Fe9d3EFa1259A5A43c3963', // Arc Agent Bazaar contract deployment target
+  contractAddress: '0xDf726AEEf70e33ed7DBCECdbb4d9ea9638dc46FB', // Live deployed contract on Arc Mainnet
 };
 
 export const CONTRACT_NAME = 'ArcAgentBazaar';
