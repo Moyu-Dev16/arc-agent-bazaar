@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Activity, Cpu, PlusCircle, ExternalLink, RefreshCw } from 'lucide-react';
+import { Zap, Activity, Cpu, PlusCircle, ExternalLink, RefreshCw, Rocket } from 'lucide-react';
 import { ARC_MAINNET } from '../lib/arcConfig';
 
 interface BazaarHeaderProps {
@@ -10,6 +10,7 @@ interface BazaarHeaderProps {
   activeChannelsCount: number;
   totalStallsCount: number;
   onOpenNewStallModal: () => void;
+  onOpenDeployModal: () => void;
   isSandboxMode: boolean;
   onToggleSandbox: () => void;
   walletAddress: string;
@@ -25,6 +26,7 @@ export const BazaarHeader: React.FC<BazaarHeaderProps> = ({
   activeChannelsCount,
   totalStallsCount,
   onOpenNewStallModal,
+  onOpenDeployModal,
   isSandboxMode,
   onToggleSandbox,
   walletAddress,
@@ -136,13 +138,22 @@ export const BazaarHeader: React.FC<BazaarHeaderProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={onOpenDeployModal}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-950/80 hover:bg-purple-900 border border-purple-500/50 hover:border-purple-400 text-purple-200 hover:text-white font-semibold text-xs sm:text-sm font-sans tracking-wider shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all cursor-pointer"
+            title="Deploy ArcAgentBazaar to Arc L1 using MetaMask"
+          >
+            <Rocket className="w-4 h-4 text-purple-400" />
+            <span>Deploy Contract</span>
+          </button>
+
           <button
             onClick={onOpenNewStallModal}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-gradient-to-r from-cyan-600/80 to-blue-600/80 hover:from-cyan-500 hover:to-blue-500 text-black font-semibold text-xs sm:text-sm font-sans tracking-wider border border-cyan-400/50 shadow-[0_0_15px_rgba(0,242,254,0.3)] hover:shadow-[0_0_20px_rgba(0,242,254,0.5)] transition-all cursor-pointer"
           >
             <PlusCircle className="w-4 h-4 text-black" />
-            <span>Open Agent Stall</span>
+            <span>Open Stall</span>
           </button>
 
           {/* Connected Agent Identity */}

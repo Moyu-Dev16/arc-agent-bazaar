@@ -7,6 +7,7 @@ import { BazaarHeader } from './components/BazaarHeader';
 import { BazaarStalls } from './components/BazaarStalls';
 import { StreamPaymentChannel } from './components/StreamPaymentChannel';
 import { NewStallModal } from './components/NewStallModal';
+import { DeployContractModal } from './components/DeployContractModal';
 import { AgentTerminalLog, TerminalEntry } from './components/AgentTerminalLog';
 import { signMicropayVoucher, computeChannelId } from './lib/eip712';
 import { ShieldCheck, Zap, Bot, Network, CheckCircle, Database } from 'lucide-react';
@@ -27,6 +28,7 @@ export default function App() {
   const [stalls, setStalls] = useState<AgentStall[]>(INITIAL_STALLS);
   const [selectedStall, setSelectedStall] = useState<AgentStall | null>(INITIAL_STALLS[0]);
   const [isNewStallModalOpen, setIsNewStallModalOpen] = useState(false);
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [activeChannelsCount] = useState(1);
   const [totalVolumeUSDC, setTotalVolumeUSDC] = useState(14820.65);
 
@@ -143,6 +145,7 @@ export default function App() {
         activeChannelsCount={activeChannelsCount}
         totalStallsCount={stalls.length}
         onOpenNewStallModal={() => setIsNewStallModalOpen(true)}
+        onOpenDeployModal={() => setIsDeployModalOpen(true)}
         isSandboxMode={isSandboxMode}
         onToggleSandbox={() => setIsSandboxMode(!isSandboxMode)}
         walletAddress={clientWallet.address}
@@ -337,6 +340,15 @@ export default function App() {
         onAddStall={(newStall) => {
           setStalls((prev) => [newStall, ...prev]);
           addLog(`[STALL REGISTERED] New agent stall published: ${newStall.title} (${newStall.handle})`, 'success');
+        }}
+      />
+
+      {/* Deploy Contract Modal */}
+      <DeployContractModal
+        isOpen={isDeployModalOpen}
+        onClose={() => setIsDeployModalOpen(false)}
+        onContractDeployed={(address) => {
+          addLog(`[CONTRACT DEPLOYED] ArcAgentBazaar deployed at ${address} on Circle Arc L1!`, 'success');
         }}
       />
     </div>
