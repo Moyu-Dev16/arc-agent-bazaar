@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #05070d;
+  color: #dce5fa;
+  font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 242, 254, 0.12), transparent 70%),
+    radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.08), transparent 50%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+}
+
+/* Custom glowing cyber scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #080a12;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00f2fe;
+}
+
+/* Cyber glows */
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.35);
+}
+.glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.35);
+}
+.glow-text-cyan {
+  text-shadow: 0 0 10px rgba(0, 242, 254, 0.6), 0 0 20px rgba(0, 242, 254, 0.3);
+}
+.glow-text-purple {
+  text-shadow: 0 0 10px rgba(139, 92, 246, 0.6), 0 0 20px rgba(139, 92, 246, 0.3);
+}
+
+/* Pulse animation */
+@keyframes streamPulse {
+  0% { transform: scale(0.98); opacity: 0.6; }
+  50% { transform: scale(1.02); opacity: 1; }
+  100% { transform: scale(0.98); opacity: 0.6; }
+}
+
+.stream-pulse {
+  animation: streamPulse 2s infinite ease-in-out;
+}
+
+/* Flow particles animation */
+@keyframes particleFlow {
+  0% { transform: translateX(0) scale(0.8); opacity: 0.2; }
+  50% { opacity: 1; transform: scale(1.2); }
+  100% { transform: translateX(100%) scale(0.8); opacity: 0.2; }
+}
+
+.particle-flow {
+  animation: particleFlow 1.5s infinite linear;
+}
