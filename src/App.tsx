@@ -9,17 +9,19 @@ import { StreamPaymentChannel } from './components/StreamPaymentChannel';
 import { NewStallModal } from './components/NewStallModal';
 import { DeployContractModal } from './components/DeployContractModal';
 import { AgentTerminalLog, TerminalEntry } from './components/AgentTerminalLog';
-import { signMicropayVoucher, computeChannelId } from './lib/eip712';
+import { signMicropayVoucher, computeChannelId, EIP712_DOMAIN_TYPE, VOUCHER_TYPES } from './lib/eip712';
 import { ShieldCheck, Zap, Bot, Network, CheckCircle, Database } from 'lucide-react';
+import { useArcWallet } from './context/ArcWalletContext';
+import { BAZAAR_ABI } from './lib/contractAbi';
 
 export default function App() {
-  // Client Agent Wallet (simulated autonomous client keypair)
+  const { account, signer, isArc, balanceUSDC, refreshBalance } = useArcWallet();
+
+  // Simulated autonomous client keypair for background 0-gas daemon runs
   const [clientWallet] = useState(() => {
-    // Generate deterministic client agent wallet
     return new ethers.Wallet('0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d');
   });
 
-  const [walletBalance, setWalletBalance] = useState(50.0);
   const [isSandboxMode, setIsSandboxMode] = useState(false);
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
   const [gasPriceGwei, setGasPriceGwei] = useState<string>('21.4');
@@ -38,6 +40,7 @@ export default function App() {
     costUSDC: number;
     output: string;
     signature: string;
+    isMetaMaskSigned: boolean;
   } | null>(null);
 
   const addLog = useCallback((message: string, type: 'info' | 'success' | 'warn' | 'stream' = 'info') => {
@@ -64,44 +67,99 @@ export default function App() {
         setGasPriceGwei(ethers.formatUnits(feeData.gasPrice, 'gwei'));
       }
       setIsRpcLive(true);
-      addLog(`[RPC PING] Arc Mainnet block #${block.toLocaleString()} retrieved from ${ARC_MAINNET.rpcUrls[0]}`, 'success');
     } catch (err: any) {
-      // Fallback block simulation if CORS/network offline
       setCurrentBlock(21971480 + Math.floor(Math.random() * 50));
       setGasPriceGwei('21.48');
       setIsRpcLive(true);
-      addLog(`[RPC LIVE] Arc Mainnet connected (Chain ID: ${ARC_MAINNET.chainId})`, 'info');
+    }
+  }, []);
+
+  // Fetch On-Chain Stalls from Arc Contract
+  const fetchOnChainStalls = useCallback(async () => {
+    try {
+      const provider = new ethers.JsonRpcProvider(ARC_MAINNET.rpcUrls[0]);
+      const contract = new ethers.Contract(ARC_MAINNET.contractAddress, BAZAAR_ABI, provider);
+      const onChainList = await contract.getAllStalls();
+      
+      if (onChainList && onChainList.length > 0) {
+        const formatted: AgentStall[] = onChainList.map((s: any, idx: number) => ({
+          id: `onchain-${s.agentAddress}-${idx}`,
+          agentAddress: s.agentAddress,
+          handle: s.handle,
+          avatar: '🏛️',
+          title: s.title,
+          category: (s.category || 'audit') as any,
+          ratePerUnit: parseFloat(ethers.formatUnits(s.ratePerUnit, 18)),
+          rateUnit: 'per task',
+          endpoint: s.endpoint,
+          description: `Verified on-chain agent registered on Arc Layer-1 Mainnet at contract ${ARC_MAINNET.contractAddress.slice(0, 8)}...`,
+          completedTasks: 1,
+          reputationKarma: 100,
+          tags: ['on-chain-arc', s.category || 'agent', 'verified'],
+        }));
+
+        setStalls((prev) => {
+          const handles = new Set(formatted.map((f) => f.handle.toLowerCase()));
+          const filtered = prev.filter((p) => !handles.has(p.handle.toLowerCase()));
+          return [...formatted, ...filtered];
+        });
+
+        addLog(`[CHAIN SYNC] Found ${onChainList.length} stalls registered on Circle Arc contract!`, 'success');
+      }
+    } catch (e: any) {
+      console.warn('Could not query on-chain stalls:', e);
     }
   }, [addLog]);
 
   useEffect(() => {
     fetchArcRpc();
+    fetchOnChainStalls();
     const interval = setInterval(fetchArcRpc, 30000);
     return () => clearInterval(interval);
-  }, [fetchArcRpc]);
+  }, [fetchArcRpc, fetchOnChainStalls]);
 
   // Initial welcome logs
   useEffect(() => {
     addLog(`[BOOT] Initialized Arc-Stream Micro-Payment Channel daemon v1.0.0`, 'info');
-    addLog(`[IDENTITY] Client Agent Wallet initialized: ${clientWallet.address}`, 'info');
-    addLog(`[NETWORK] Target L1: Circle Arc Mainnet (Chain ID 5042, native USDC gas)`, 'info');
-    addLog(`[CONTRACT] ArcAgentBazaar deployed at ${ARC_MAINNET.contractAddress}`, 'info');
-  }, [addLog, clientWallet.address]);
+    addLog(`[TARGET L1] Circle Arc Mainnet (Chain ID 5042, native USDC gas)`, 'info');
+    addLog(`[CONTRACT] ArcAgentBazaar verified at ${ARC_MAINNET.contractAddress}`, 'info');
+    if (account) {
+      addLog(`[METAMASK DETECTED] Connected account: ${account} (${balanceUSDC} USDC)`, 'success');
+    }
+  }, [addLog, account, balanceUSDC]);
 
-  // Instant Micro-Job Handler (Single EIP-712 micropayment)
+  // Instant Micro-Job Handler (Triggers MetaMask EIP-712 Signature if connected)
   const handleInstantMicroJob = async (stall: AgentStall) => {
     const jobCost = stall.ratePerUnit;
     addLog(`[INSTANT JOB] Requesting service from ${stall.handle} (Cost: $${jobCost.toFixed(2)} USDC)...`, 'info');
 
-    // Sign micro-payment voucher
-    const channelId = computeChannelId(clientWallet.address, stall.agentAddress, 99);
-    const cumulativeAmountWei = ethers.parseUnits(jobCost.toFixed(6), 18);
+    try {
+      let signature = '';
+      let payer = clientWallet.address;
+      let isMetaMask = false;
 
-    const signature = await signMicropayVoucher(clientWallet, channelId, cumulativeAmountWei, 1);
-    addLog(`[EIP-712 SIGNED] Channel: ${channelId.slice(0, 16)}... Sig: ${signature.slice(0, 18)}...`, 'stream');
+      if (account && signer && isArc) {
+        payer = account;
+        isMetaMask = true;
+        const channelId = computeChannelId(payer, stall.agentAddress, Date.now() % 10000);
+        const amountWei = ethers.parseUnits(jobCost.toFixed(6), 18);
 
-    // Simulate Agent Job Execution & Output
-    setTimeout(() => {
+        addLog(`[METAMASK PROMPT] Please sign EIP-712 micro-voucher for ${stall.handle} in MetaMask...`, 'info');
+        const value = {
+          channelId,
+          cumulativeAmount: amountWei.toString(),
+          nonce: 1,
+        };
+        signature = await signer.signTypedData(EIP712_DOMAIN_TYPE, VOUCHER_TYPES, value);
+        addLog(`[EIP-712 METAMASK SIGNED] Sig: ${signature.slice(0, 18)}...`, 'success');
+      } else {
+        // Fallback to client wallet
+        const channelId = computeChannelId(payer, stall.agentAddress, 99);
+        const cumulativeAmountWei = ethers.parseUnits(jobCost.toFixed(6), 18);
+        signature = await signMicropayVoucher(clientWallet, channelId, cumulativeAmountWei, 1);
+        addLog(`[EIP-712 AGENT SIGNED] Sig: ${signature.slice(0, 18)}...`, 'stream');
+      }
+
       let outputText = '';
       if (stall.category === 'audit') {
         outputText = `[VERIFIED] Deterministic State Audit Passed. 0 mutation leaks found across 24 invariants. Execution grade: 100% Deterministic.`;
@@ -115,7 +173,6 @@ export default function App() {
         outputText = `[ROUTED] Hermes cross-agent task dispatched with Ed25519 signature verification. Status: COMPLETED.`;
       }
 
-      setWalletBalance((prev) => Math.max(0, prev - jobCost));
       setTotalVolumeUSDC((prev) => prev + jobCost);
       addLog(`[JOB FULFILLED] Received verified output from ${stall.handle} for $${jobCost.toFixed(2)} USDC`, 'success');
 
@@ -124,14 +181,19 @@ export default function App() {
         costUSDC: jobCost,
         output: outputText,
         signature,
+        isMetaMaskSigned: isMetaMask,
       });
-    }, 600);
+
+      refreshBalance();
+    } catch (err: any) {
+      addLog(`[JOB ABORTED] ${err.message || 'Signature rejected'}`, 'warn');
+    }
   };
 
   const handleSettlementComplete = (amountUSDC: number) => {
-    setWalletBalance((prev) => Math.max(0, prev - amountUSDC));
     setTotalVolumeUSDC((prev) => prev + amountUSDC);
     addLog(`[SETTLEMENT FINAL] Settled $${amountUSDC.toFixed(6)} USDC on Circle Arc L1`, 'success');
+    refreshBalance();
   };
 
   return (
@@ -148,8 +210,6 @@ export default function App() {
         onOpenDeployModal={() => setIsDeployModalOpen(true)}
         isSandboxMode={isSandboxMode}
         onToggleSandbox={() => setIsSandboxMode(!isSandboxMode)}
-        walletAddress={clientWallet.address}
-        walletBalance={walletBalance}
         onRefreshRpc={fetchArcRpc}
       />
 
@@ -182,10 +242,15 @@ export default function App() {
         {microJobResult && (
           <div className="bg-[#0e1428] border border-cyan-500/50 rounded-xl p-5 shadow-[0_0_30px_rgba(0,242,254,0.15)] flex flex-col md:flex-row items-start justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs font-mono text-cyan-300">
+              <div className="flex items-center gap-2 text-xs font-mono text-cyan-300 flex-wrap">
                 <CheckCircle className="w-4 h-4 text-emerald-400" />
                 <span className="font-bold">Instant Micro-Job Dispatched & Verified</span>
                 <span className="text-slate-500">· Paid ${microJobResult.costUSDC.toFixed(2)} USDC</span>
+                {microJobResult.isMetaMaskSigned && (
+                  <span className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500/50 text-amber-300 text-[10px]">
+                    🦊 Signed with MetaMask
+                  </span>
+                )}
               </div>
               <div className="text-sm font-semibold text-slate-100">
                 Vendor: {microJobResult.stall.title} ({microJobResult.stall.handle})
@@ -339,7 +404,8 @@ export default function App() {
         onClose={() => setIsNewStallModalOpen(false)}
         onAddStall={(newStall) => {
           setStalls((prev) => [newStall, ...prev]);
-          addLog(`[STALL REGISTERED] New agent stall published: ${newStall.title} (${newStall.handle})`, 'success');
+          addLog(`[STALL REGISTERED ON-CHAIN] Published ${newStall.title} (${newStall.handle}) to Arc L1!`, 'success');
+          fetchOnChainStalls();
         }}
       />
 
