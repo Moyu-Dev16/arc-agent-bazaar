@@ -81,6 +81,7 @@ export const StreamPaymentChannel: React.FC<StreamPaymentChannelProps> = ({
       onLogTerminal(`[METAMASK PROMPT] Please confirm openChannel transaction in MetaMask...`, 'info');
       const tx = await contract.openChannel(selectedStall.agentAddress, durationSeconds, {
         value: depositWei,
+        gasLimit: 300000,
       });
 
       onLogTerminal(`[ARC L1 BROADCAST] Tx broadcasted: ${tx.hash}. Waiting for block confirmation...`, 'info');
@@ -108,7 +109,11 @@ export const StreamPaymentChannel: React.FC<StreamPaymentChannelProps> = ({
       onLogTerminal(`[CHANNEL OPENED ON ARC] Channel ID: ${createdId} confirmed in block #${receipt.blockNumber}!`, 'success');
     } catch (err: any) {
       console.error(err);
-      onLogTerminal(`[OPEN ERROR] ${err.reason || err.message || 'Failed to open channel'}`, 'warn');
+      if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
+        onLogTerminal(`[METAMASK] Transaction cancelled by user.`, 'info');
+      } else {
+        onLogTerminal(`[OPEN ERROR] ${err.reason || err.message || 'Failed to open channel'}`, 'warn');
+      }
     } finally {
       setIsOpeningOnChain(false);
     }

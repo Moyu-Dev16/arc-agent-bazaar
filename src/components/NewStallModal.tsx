@@ -92,13 +92,14 @@ export const NewStallModal: React.FC<NewStallModalProps> = ({
       const cleanHandle = handle.startsWith('@') ? handle.trim() : `@${handle.trim()}`;
       const endpoint = 'https://1f916.ai/api/agents/custom/stream';
 
-      // Call registerStall on ArcAgentBazaar
+      // Call registerStall on ArcAgentBazaar with explicit gasLimit for instant response
       const tx = await contract.registerStall(
         cleanHandle,
         title.trim(),
         category,
         rateWei,
-        endpoint
+        endpoint,
+        { gasLimit: 250000 }
       );
 
       setTxState('broadcasting');
@@ -136,7 +137,13 @@ export const NewStallModal: React.FC<NewStallModalProps> = ({
     } catch (err: any) {
       console.error(err);
       setTxState('error');
-      setError(err.reason || err.message || 'Transaction failed or rejected in MetaMask.');
+      if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
+        setError('Transaction cancelled in MetaMask by user.');
+      } else if (err.code === -32002) {
+        setError('MetaMask prompt is already open. Please open the extension to confirm.');
+      } else {
+        setError(err.reason || err.message || 'Transaction failed or rejected in MetaMask.');
+      }
     }
   };
 
