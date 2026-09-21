@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { ethers } from 'ethers';
 import { ARC_MAINNET } from '../lib/arcConfig';
 import { BAZAAR_ABI } from '../lib/contractAbi';
@@ -21,99 +21,124 @@ interface ArcWalletContextType {
 
 const ArcWalletContext = createContext<ArcWalletContextType>({} as any);
 
+const DISCONNECT_STORAGE_KEY = 'arc_wallet_user_disconnected';
+
 export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [balanceUSDC, setBalanceUSDC] = useState<string>('0.0000');
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
+
+  const providerRef = useRef<ethers.BrowserProvider | null>(null);
   const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
 
   const isArc = chainId === ARC_MAINNET.chainId;
 
-  // Refresh balance from on-chain
+  // Helper to get or create BrowserProvider once
+  const getBrowserProvider = useCallback(() => {
+    if (typeof window !== 'undefined' && (window as any).ethereum) {
+      if (!providerRef.current) {
+        providerRef.current = new ethers.BrowserProvider((window as any).ethereum);
+      }
+      return providerRef.current;
+    }
+    return null;
+  }, []);
+
+  // Refresh balance from on-chain (uses direct rpc fallback to avoid extra browser calls)
   const refreshBalance = useCallback(async () => {
     if (!account) return;
     try {
-      // Use fallback JsonRpcProvider if browser provider isn't on Arc
-      const queryProvider = isArc && provider
-        ? provider
+      const queryProvider = isArc && providerRef.current
+        ? providerRef.current
         : new ethers.JsonRpcProvider(ARC_MAINNET.rpcUrls[0]);
-      
+
       const bal = await queryProvider.getBalance(account);
       setBalanceUSDC(parseFloat(ethers.formatUnits(bal, 18)).toFixed(4));
     } catch (err) {
       console.warn('Failed to refresh balance:', err);
     }
-  }, [account, isArc, provider]);
+  }, [account, isArc]);
 
-  // Handle Ethereum provider initialization
-  const initEthereum = useCallback(async () => {
+  // Initial load: check if already authorized WITHOUT infinite loops
+  useEffect(() => {
     if (typeof window === 'undefined' || !(window as any).ethereum) {
       return;
     }
+
     const eth = (window as any).ethereum;
-    const browserProvider = new ethers.BrowserProvider(eth);
-    setProvider(browserProvider);
+    const browserProvider = getBrowserProvider();
+    if (!browserProvider) return;
 
-    try {
-      const accounts = await eth.request({ method: 'eth_accounts' });
-      const network = await browserProvider.getNetwork();
-      const currentChainId = Number(network.chainId);
-      setChainId(currentChainId);
+    // Check user disconnect state
+    const userDisconnected = sessionStorage.getItem(DISCONNECT_STORAGE_KEY) === 'true';
 
-      if (accounts && accounts.length > 0) {
-        const userAccount = accounts[0];
-        setAccount(userAccount);
-        const userSigner = await browserProvider.getSigner();
-        setSigner(userSigner);
+    const checkInitialAccounts = async () => {
+      try {
+        const network = await browserProvider.getNetwork();
+        setChainId(Number(network.chainId));
 
-        const bal = await browserProvider.getBalance(userAccount);
-        setBalanceUSDC(parseFloat(ethers.formatUnits(bal, 18)).toFixed(4));
-      }
-    } catch (e: any) {
-      console.warn('Error during eth initialization:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    initEthereum();
-
-    if (typeof window !== 'undefined' && (window as any).ethereum) {
-      const eth = (window as any).ethereum;
-
-      const handleAccountsChanged = async (accounts: string[]) => {
-        if (accounts.length === 0) {
-          setAccount(null);
-          setSigner(null);
-          setBalanceUSDC('0.0000');
-        } else {
-          setAccount(accounts[0]);
-          if (provider) {
-            const userSigner = await provider.getSigner();
+        if (!userDisconnected) {
+          const accounts = await eth.request({ method: 'eth_accounts' });
+          if (accounts && accounts.length > 0) {
+            const userAccount = accounts[0];
+            setAccount(userAccount);
+            const userSigner = await browserProvider.getSigner();
             setSigner(userSigner);
-            refreshBalance();
+
+            const bal = await browserProvider.getBalance(userAccount);
+            setBalanceUSDC(parseFloat(ethers.formatUnits(bal, 18)).toFixed(4));
           }
         }
-      };
+      } catch (e: any) {
+        console.warn('Error during initial eth check:', e);
+      }
+    };
 
-      const handleChainChanged = (_chainIdHex: string) => {
-        // Reload or update state
-        initEthereum();
-      };
+    checkInitialAccounts();
 
-      eth.on('accountsChanged', handleAccountsChanged);
-      eth.on('chainChanged', handleChainChanged);
+    const handleAccountsChanged = async (accounts: string[]) => {
+      if (accounts.length === 0) {
+        setAccount(null);
+        setSigner(null);
+        setBalanceUSDC('0.0000');
+        sessionStorage.setItem(DISCONNECT_STORAGE_KEY, 'true');
+      } else {
+        const isManualDisconnect = sessionStorage.getItem(DISCONNECT_STORAGE_KEY) === 'true';
+        if (!isManualDisconnect) {
+          setAccount(accounts[0]);
+          const userSigner = await browserProvider.getSigner();
+          setSigner(userSigner);
+          const bal = await browserProvider.getBalance(accounts[0]);
+          setBalanceUSDC(parseFloat(ethers.formatUnits(bal, 18)).toFixed(4));
+        }
+      }
+    };
 
-      return () => {
-        eth.removeListener('accountsChanged', handleAccountsChanged);
-        eth.removeListener('chainChanged', handleChainChanged);
-      };
-    }
-  }, [initEthereum, provider, refreshBalance]);
+    const handleChainChanged = async () => {
+      try {
+        const network = await browserProvider.getNetwork();
+        setChainId(Number(network.chainId));
+        if (account) {
+          const bal = await browserProvider.getBalance(account);
+          setBalanceUSDC(parseFloat(ethers.formatUnits(bal, 18)).toFixed(4));
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    };
 
-  // Connect MetaMask
+    eth.on('accountsChanged', handleAccountsChanged);
+    eth.on('chainChanged', handleChainChanged);
+
+    return () => {
+      eth.removeListener('accountsChanged', handleAccountsChanged);
+      eth.removeListener('chainChanged', handleChainChanged);
+    };
+  }, [getBrowserProvider]); // Run only once on mount
+
+  // Explicit Connect MetaMask
   const connectMetaMask = async (): Promise<string | null> => {
     setError(null);
     if (typeof window === 'undefined' || !(window as any).ethereum) {
@@ -122,9 +147,9 @@ export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     setIsConnecting(true);
     try {
+      sessionStorage.removeItem(DISCONNECT_STORAGE_KEY);
       const eth = (window as any).ethereum;
-      const browserProvider = new ethers.BrowserProvider(eth);
-      setProvider(browserProvider);
+      const browserProvider = getBrowserProvider()!;
 
       const accounts = await eth.request({ method: 'eth_requestAccounts' });
       if (accounts && accounts.length > 0) {
@@ -137,7 +162,6 @@ export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const curChainId = Number(network.chainId);
         setChainId(curChainId);
 
-        // Check if network is Arc, if not prompt switch
         if (curChainId !== ARC_MAINNET.chainId) {
           await switchToArc();
         } else {
@@ -164,15 +188,20 @@ export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return false;
     }
     const eth = (window as any).ethereum;
+    const browserProvider = getBrowserProvider()!;
     try {
       await eth.request({
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: ARC_MAINNET.chainIdHex }],
       });
-      await initEthereum();
+      const network = await browserProvider.getNetwork();
+      setChainId(Number(network.chainId));
+      if (account) {
+        const bal = await browserProvider.getBalance(account);
+        setBalanceUSDC(parseFloat(ethers.formatUnits(bal, 18)).toFixed(4));
+      }
       return true;
     } catch (switchError: any) {
-      // 4902 means the chain has not been added to MetaMask
       if (switchError.code === 4902 || switchError.data?.originalError?.code === 4902) {
         try {
           await eth.request({
@@ -187,7 +216,8 @@ export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               },
             ],
           });
-          await initEthereum();
+          const network = await browserProvider.getNetwork();
+          setChainId(Number(network.chainId));
           return true;
         } catch (addError: any) {
           setError(addError.message || 'Failed to add Arc network to MetaMask.');
@@ -200,22 +230,26 @@ export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const disconnect = () => {
+  // Disconnect function: instantly and persistently disconnects
+  const disconnect = useCallback(() => {
+    sessionStorage.setItem(DISCONNECT_STORAGE_KEY, 'true');
     setAccount(null);
     setSigner(null);
     setBalanceUSDC('0.0000');
-  };
+  }, []);
 
   const getBazaarContract = async (withSigner: boolean = false): Promise<ethers.Contract | null> => {
+    const browserProvider = getBrowserProvider();
     if (withSigner) {
-      if (!signer) {
-        // Try connecting
+      let currentSigner = signer;
+      if (!currentSigner && browserProvider) {
         await connectMetaMask();
+        currentSigner = await browserProvider.getSigner();
       }
-      if (!signer) return null;
-      return new ethers.Contract(ARC_MAINNET.contractAddress, BAZAAR_ABI, signer);
+      if (!currentSigner) return null;
+      return new ethers.Contract(ARC_MAINNET.contractAddress, BAZAAR_ABI, currentSigner);
     } else {
-      const readProvider = provider || new ethers.JsonRpcProvider(ARC_MAINNET.rpcUrls[0]);
+      const readProvider = browserProvider || new ethers.JsonRpcProvider(ARC_MAINNET.rpcUrls[0]);
       return new ethers.Contract(ARC_MAINNET.contractAddress, BAZAAR_ABI, readProvider);
     }
   };
@@ -229,7 +263,7 @@ export const ArcWalletProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         balanceUSDC,
         isConnecting,
         error,
-        provider,
+        provider: providerRef.current,
         signer,
         connectMetaMask,
         switchToArc,

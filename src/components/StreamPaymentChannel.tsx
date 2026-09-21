@@ -150,39 +150,48 @@ export const StreamPaymentChannel: React.FC<StreamPaymentChannelProps> = ({
     }
   };
 
+  const totalStreamedRef = useRef(0);
+  const nonceRef = useRef(0);
+
+  useEffect(() => {
+    totalStreamedRef.current = totalStreamedUSDC;
+  }, [totalStreamedUSDC]);
+
+  useEffect(() => {
+    nonceRef.current = nonce;
+  }, [nonce]);
+
   // Autonomous Agent Micro-Stream Loop
   useEffect(() => {
     if (isStreaming) {
       streamIntervalRef.current = setInterval(async () => {
-        setTotalStreamedUSDC((prev) => {
-          const next = prev + ratePerTick;
-          if (next >= channelDeposit) {
-            setIsStreaming(false);
-            onLogTerminal(`[STREAM] Channel deposit exhausted ($${channelDeposit} USDC). Stream halted.`, 'warn');
-            return channelDeposit;
+        const nextTotal = totalStreamedRef.current + ratePerTick;
+        if (nextTotal >= channelDeposit) {
+          setIsStreaming(false);
+          setTotalStreamedUSDC(channelDeposit);
+          onLogTerminal(`[STREAM] Channel deposit exhausted ($${channelDeposit} USDC). Stream halted.`, 'warn');
+          return;
+        }
+
+        const newNonce = nonceRef.current + 1;
+        totalStreamedRef.current = nextTotal;
+        nonceRef.current = newNonce;
+        setTotalStreamedUSDC(nextTotal);
+        setNonce(newNonce);
+
+        const cumulativeAmountWei = ethers.parseUnits(nextTotal.toFixed(6), 18);
+
+        // In autonomous high-speed mode, agent wallet signs programmatically
+        signMicropayVoucher(clientWallet, channelId, cumulativeAmountWei, newNonce).then((sig: string) => {
+          setLatestSignature(sig);
+          if (newNonce % 10 === 0 || newNonce === 1) {
+            onLogTerminal(
+              `[EIP-712 STREAM] Nonce #${newNonce} | +$${ratePerTick.toFixed(6)} USDC | Sig: ${sig.slice(0, 16)}...`,
+              'stream'
+            );
           }
-          return next;
-        });
-
-        setNonce((prevNonce) => {
-          const newNonce = prevNonce + 1;
-          const currentClaimAmount = totalStreamedUSDC + ratePerTick;
-          const cumulativeAmountWei = ethers.parseUnits(currentClaimAmount.toFixed(6), 18);
-
-          // In autonomous high-speed mode, agent wallet signs programmatically
-          signMicropayVoucher(clientWallet, channelId, cumulativeAmountWei, newNonce).then((sig: string) => {
-            setLatestSignature(sig);
-            if (newNonce % 10 === 0 || newNonce === 1) {
-              onLogTerminal(
-                `[EIP-712 STREAM] Nonce #${newNonce} | +$${ratePerTick.toFixed(6)} USDC | Sig: ${sig.slice(0, 16)}...`,
-                'stream'
-              );
-            }
-          }).catch((err: any) => {
-            onLogTerminal(`[SIGNING ERROR] ${err.message}`, 'warn');
-          });
-
-          return newNonce;
+        }).catch((err: any) => {
+          onLogTerminal(`[SIGNING ERROR] ${err.message}`, 'warn');
         });
       }, 1000 / streamFrequencyHz);
     } else {
@@ -196,7 +205,7 @@ export const StreamPaymentChannel: React.FC<StreamPaymentChannelProps> = ({
         clearInterval(streamIntervalRef.current);
       }
     };
-  }, [isStreaming, streamFrequencyHz, totalStreamedUSDC, channelDeposit, selectedStall, clientWallet, channelId, onLogTerminal, ratePerTick]);
+  }, [isStreaming, streamFrequencyHz, channelDeposit, clientWallet, channelId, onLogTerminal, ratePerTick]);
 
   const handleToggleStream = () => {
     if (isSettled) return;
