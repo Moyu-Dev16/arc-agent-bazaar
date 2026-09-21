@@ -139,13 +139,27 @@ export const BazaarHeader: React.FC<BazaarHeaderProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Live Verified Contract Badge */}
+          <a
+            href={`https://explorer.arc.io/address/${ARC_MAINNET.contractAddress}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-white font-mono text-xs shadow-[0_0_15px_rgba(16,185,129,0.25)] transition-all cursor-pointer"
+            title="Official Live Contract on Circle Arc Mainnet"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-sans font-bold text-emerald-200 hidden sm:inline">CONTRACT:</span>
+            <span>{ARC_MAINNET.contractAddress.slice(0, 6)}...{ARC_MAINNET.contractAddress.slice(-4)}</span>
+            <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+          </a>
+
           <button
             onClick={onOpenDeployModal}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-950/80 hover:bg-purple-900 border border-purple-500/50 hover:border-purple-400 text-purple-200 hover:text-white font-semibold text-xs sm:text-sm font-sans tracking-wider shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all cursor-pointer"
-            title="Deploy ArcAgentBazaar to Arc L1 using MetaMask"
+            className="flex items-center gap-1 px-2.5 py-2 rounded-lg bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/40 hover:border-purple-400 text-purple-300 hover:text-white text-xs font-sans tracking-wider transition-all cursor-pointer"
+            title="Deployment Manager"
           >
-            <Rocket className="w-4 h-4 text-purple-400" />
-            <span>Deploy Contract</span>
+            <Rocket className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden md:inline">Deployer</span>
           </button>
 
           <button
